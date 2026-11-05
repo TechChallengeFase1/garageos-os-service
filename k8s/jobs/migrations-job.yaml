@@ -1,62 +1,38 @@
 # Job de migrations do Entity Framework Core.
 #
 # Fica em k8s/jobs/ e NAO em k8s/ de proposito: `kubectl apply -f k8s/` nao e
-# recursivo, entao a aplicacao dos manifestos da API nao arrasta este Job
-# junto. A pipeline aplica os dois em momentos distintos, nesta ordem:
-#
-#   1. kubectl delete job garageos-migrations -n garageos --ignore-not-found
-#   2. kubectl apply -f k8s/jobs/migrations-job.yaml
-#   3. kubectl wait --for=condition=complete job/garageos-migrations --timeout=300s
-#   4. kubectl apply -f k8s/          <- so entao o rollout da API
-#
-# O passo 1 existe porque a especificacao de um Job e imutavel: aplicar de novo
-# com uma tag de imagem diferente falha com "field is immutable". Como o Job e
-# descartavel por natureza, apagar e recriar e o caminho correto.
+# recursivo. A pipeline apaga o Job anterior (a especificacao de um Job e
+# imutavel), aplica este e so depois faz o rollout da API. Com o HPA, migrar na
+# subida faria varias replicas migrarem em paralelo.
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: garageos-migrations
-  namespace: garageos
+  name: garageos-os-migrations
+  namespace: garageos-os
   labels:
-    app.kubernetes.io/name: garageos-migrations
+    app.kubernetes.io/name: garageos-os-migrations
     app.kubernetes.io/part-of: garageos
 spec:
-  # Ate 3 tentativas. Migration e idempotente, entao retentar e seguro: se a
-  # primeira aplicou metade e caiu, a segunda continua de onde parou.
   backoffLimit: 3
-
-  # O Job se apaga sozinho 5 minutos depois de concluir, para nao acumular um
-  # objeto por deploy no namespace.
   ttlSecondsAfterFinished: 300
-
   template:
     metadata:
       labels:
-        app: garageos-migrations
+        app: garageos-os-migrations
     spec:
-      # Never: se o container falhar, quem cria um novo pod e o Job (respeitando
-      # o backoffLimit), nao o kubelet reiniciando o mesmo container.
       restartPolicy: Never
-
+      serviceAccountName: os
+      # Os pods nao falam com a API do cluster. O IRSA usa outro token, projetado a parte.
+      automountServiceAccountToken: false
       containers:
         - name: migrations
-          # MESMA imagem da API. A pipeline substitui :latest pela tag do commit,
-          # garantindo que a migration aplicada e a do codigo que esta subindo.
-          image: garageosfiap/garageos-api:latest
-          imagePullPolicy: Always
-
-          # O ENTRYPOINT da imagem e ["dotnet", "GarageOS.Api.dll"];
-          # args vira ["dotnet", "GarageOS.Api.dll", "--migrate"].
+          image: __IMAGE__
           args: ["--migrate"]
-
-          # Mesma configuracao da API: precisa da connection string, e apenas
-          # dela. O restante vem junto por simplicidade.
           envFrom:
             - configMapRef:
-                name: garageos-config
+                name: garageos-os-config
             - secretRef:
-                name: garageos-secret
-
+                name: garageos-os-secret
           resources:
             requests:
               cpu: 100m

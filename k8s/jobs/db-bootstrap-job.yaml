@@ -34,6 +34,8 @@ spec:
         app: garageos-os-db-bootstrap
     spec:
       restartPolicy: Never
+      # Os pods nao falam com a API do cluster. O IRSA usa outro token, projetado a parte.
+      automountServiceAccountToken: false
       containers:
         - name: psql
           image: postgres:16-alpine

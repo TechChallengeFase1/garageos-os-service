@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: garageos-os
+  namespace: garageos-os
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: garageos-os
+  template:
+    metadata:
+      labels:
+        app: garageos-os
+    spec:
+      serviceAccountName: os
+      # Os pods nao falam com a API do cluster. O IRSA usa outro token, projetado a parte.
+      automountServiceAccountToken: false
+      containers:
+        - name: api
+          # A pipeline troca pelo ECR com a tag do commit.
+          image: __IMAGE__
+          ports:
+            - containerPort: 8080
+              name: http
+          envFrom:
+            - configMapRef:
+                name: garageos-os-config
+            - secretRef:
+                name: garageos-os-secret
+          # /health/ready consulta o banco e a mensageria: com eles fora, o pod sai
+          # do balanceamento sem ser reiniciado. /health/live nao consulta nada.
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

@@ -1,17 +1,18 @@
 name: CD
 
-# Pipeline de entrega continua: build, testes, imagem e deploy no EKS.
+# Imagem no ECR e deploy no EKS. A CI chama este workflow como ultimo passo, so em
+# push na main, depois de build, testes e Sonar. Tambem roda a mao, em Actions > CD.
 #
-# Autenticacao na AWS por OIDC. Nenhuma credencial estatica da AWS existe neste
-# repositorio - nem em secrets, nem em variaveis.
+# Chamado pela CI, e nao por workflow_run: aquele gatilho tambem dispara para fork
+# com branch chamada main, e executaria codigo de fora com as credenciais da AWS.
 #
-# O deploy descobre TUDO em tempo de execucao, pelo SSM Parameter Store: nome do
-# cluster, namespace e onde estao os segredos. Nada disso esta escrito a mao
-# aqui, entao recriar a infraestrutura do zero nao exige editar este arquivo.
+# A infra e ligada e destruida para economizar: sem o cluster, o job "Verificar"
+# so avisa e o deploy e pulado, em vez de falhar a cada merge.
+#
+# Nada de endereco ou segredo escrito aqui: tudo vem do SSM e do Secrets Manager.
 
 on:
-  push:
-    branches: [main]
+  workflow_call:
   workflow_dispatch:
 
 permissions:
@@ -19,229 +20,241 @@ permissions:
   contents: read
 
 env:
-  IMAGE: garageosfiap/garageos-api
   AWS_REGION: us-east-1
   AWS_ROLE: arn:aws:iam::266380777968:role/garageos-github-actions
   AMBIENTE: producao
+  SERVICO: os
+  COMMIT: ${{ github.sha }}
 
 concurrency:
-  group: cd-${{ github.ref }}
+  group: cd-os
   cancel-in-progress: false
 
 jobs:
-  # 1) Build da aplicacao + 2) Execucao dos testes automatizados
-  build-test:
-    name: Build e testes automatizados
+  verificar:
+    name: Verificar
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      no_ar: ${{ steps.infra.outputs.no_ar }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: '10.0.x'
-
-      - name: Restore
-        run: dotnet restore Code/GarageOS.slnx
-
-      - name: Build da aplicacao
-        run: dotnet build Code/GarageOS.slnx --configuration Release --no-restore
-
-      - name: Testes unitarios
-        run: dotnet test Code/GarageOS.UnitTests/GarageOS.UnitTests.csproj --configuration Release --no-build
-
-      - name: Testes de integracao
-        run: dotnet test Code/GarageOS.IntegrationTests/GarageOS.IntegrationTests.csproj --configuration Release --no-build
-
-  # 3) Build da imagem Docker (e push para o Docker Hub)
-  docker:
-    name: Build e push da imagem Docker
-    needs: build-test
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login no Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Build e push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./Dockerfile
-          push: true
-          tags: |
-            ${{ env.IMAGE }}:latest
-            ${{ env.IMAGE }}:${{ github.sha }}
-
-  # 4) Deploy no cluster EKS
-  deploy:
-    name: Deploy no EKS
-    needs: docker
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    # Se o environment tiver required reviewers, o deploy fica pendente
-    # esperando aprovacao em vez de disparar sozinho.
-    environment: producao
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      # Sem access key: o runner apresenta um token OIDC e veste a role.
       - name: Autenticar na AWS via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
           role-to-assume: ${{ env.AWS_ROLE }}
-          role-session-name: cd-app-${{ github.run_id }}
+          role-session-name: cd-os-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Ver se a infra esta no ar
+        id: infra
+        run: |
+          if aws ssm get-parameter --name "/garageos/${AMBIENTE}/eks/cluster-name" >/dev/null 2>&1 \
+            && aws ssm get-parameter --name "/garageos/${AMBIENTE}/services/${SERVICO}/ecr-url" >/dev/null 2>&1; then
+            echo "no_ar=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "no_ar=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Infra fora do ar: deploy pulado."
+            echo "Infra fora do ar: deploy pulado." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  imagem:
+    name: Imagem
+    needs: verificar
+    if: needs.verificar.outputs.no_ar == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      image: ${{ steps.push.outputs.image }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Autenticar na AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE }}
+          role-session-name: cd-os-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Entrar no ECR
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2
+
+      # O ECR tem tags imutaveis: rodar de novo o mesmo commit reaproveita a imagem.
+      - name: Build e push
+        id: push
+        run: |
+          ECR=$(aws ssm get-parameter --name "/garageos/${AMBIENTE}/services/${SERVICO}/ecr-url" --query Parameter.Value --output text)
+          IMAGE="$ECR:$COMMIT"
+
+          if aws ecr describe-images --repository-name "${ECR#*/}" --image-ids imageTag="$COMMIT" >/dev/null 2>&1; then
+            echo "Imagem do commit ja existe."
+          else
+            docker build -t "$IMAGE" .
+            docker push "$IMAGE"
+          fi
+
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    name: Deploy
+    needs: imagem
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: producao
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Autenticar na AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE }}
+          role-session-name: cd-os-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Instalar kubectl
-        uses: azure/setup-kubectl@v4
+        uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4
 
-      # O contrato entre os repositorios. Se a infraestrutura nao estiver de pe,
-      # falha aqui, antes de tocar em qualquer coisa.
+      # O contrato entre os repositorios. Sem a infra de pe, falha aqui, antes de
+      # tocar em qualquer coisa.
       - name: Descobrir a infraestrutura no SSM
         id: infra
         run: |
           ler() { aws ssm get-parameter --name "$1" --query Parameter.Value --output text; }
 
-          CLUSTER=$(ler "/garageos/${AMBIENTE}/eks/cluster-name")
-          NAMESPACE=$(ler "/garageos/${AMBIENTE}/eks/namespace")
-          RDS_SECRET=$(ler "/garageos/${AMBIENTE}/rds/secret-arn")
-          APP_SECRET=$(ler "/garageos/app/secret-arn")
-
-          echo "cluster=$CLUSTER" >> "$GITHUB_OUTPUT"
-          echo "namespace=$NAMESPACE" >> "$GITHUB_OUTPUT"
-          echo "rds_secret=$RDS_SECRET" >> "$GITHUB_OUTPUT"
-          echo "app_secret=$APP_SECRET" >> "$GITHUB_OUTPUT"
-
-          echo "Cluster: $CLUSTER | Namespace: $NAMESPACE"
+          {
+            echo "cluster=$(ler "/garageos/${AMBIENTE}/eks/cluster-name")"
+            echo "namespace=$(ler "/garageos/${AMBIENTE}/eks/namespace/${SERVICO}")"
+            echo "app_secret=$(ler "/garageos/app/secret-arn")"
+            echo "irsa=$(ler "/garageos/${AMBIENTE}/services/${SERVICO}/irsa-role-arn")"
+            echo "apigw=$(ler "/garageos/${AMBIENTE}/apigw/url")"
+            echo "db_secret=$(ler "/garageos/${AMBIENTE}/services/${SERVICO}/db-secret-arn")"
+            echo "auth_secret=$(ler "/garageos/${AMBIENTE}/services/${SERVICO}/rds/auth-reader-secret-arn")"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Configurar acesso ao cluster
         run: |
           aws eks update-kubeconfig --name "${{ steps.infra.outputs.cluster }}" --region "$AWS_REGION"
           kubectl get nodes
 
-      # Os segredos NAO vivem no Git. Sao lidos do Secrets Manager aqui e viram
-      # um Secret do Kubernetes, criado no momento do deploy.
-      #
-      # O par "--dry-run=client -o yaml | kubectl apply -f -" torna a operacao
-      # idempotente: cria na primeira vez, atualiza nas seguintes.
-      #
-      # Os add-mask registram os valores como segredos do Actions: se algum
-      # comando ecoar por engano, sai mascarado no log.
-      - name: Criar o Secret a partir do AWS Secrets Manager
+      # Os segredos nao vivem no Git. Sao lidos do Secrets Manager aqui e viram um
+      # Secret do Kubernetes. O par dry-run + apply cria ou atualiza.
+      - name: Criar o Secret a partir do Secrets Manager
         run: |
-          RDS_JSON=$(aws secretsmanager get-secret-value --secret-id "${{ steps.infra.outputs.rds_secret }}" --query SecretString --output text)
-          APP_JSON=$(aws secretsmanager get-secret-value --secret-id "${{ steps.infra.outputs.app_secret }}" --query SecretString --output text)
+          segredo() { aws secretsmanager get-secret-value --secret-id "$1" --query SecretString --output text; }
 
-          CONN=$(printf '%s' "$RDS_JSON" | jq -r .connectionString)
+          APP_JSON=$(segredo "${{ steps.infra.outputs.app_secret }}")
           JWT=$(printf '%s' "$APP_JSON" | jq -r .jwtSecretKey)
-          ADMIN=$(printf '%s' "$APP_JSON" | jq -r .adminPassword)
-          # O agente do New Relic ja esta na imagem e le esta variavel do
-          # ambiente. Sem ela, ele sobe, registra "Please set your license key"
-          # e se desliga: a aplicacao funciona, mas nao reporta nada.
+          ISSUER=$(printf '%s' "$APP_JSON" | jq -r .jwtIssuer)
+          AUDIENCE=$(printf '%s' "$APP_JSON" | jq -r .jwtAudience)
           NEWRELIC=$(printf '%s' "$APP_JSON" | jq -r '.newRelicLicenseKey // empty')
 
-          echo "::add-mask::$CONN"
           echo "::add-mask::$JWT"
-          echo "::add-mask::$ADMIN"
           [ -n "$NEWRELIC" ] && echo "::add-mask::$NEWRELIC"
 
-          kubectl create secret generic garageos-secret \
+          DB_JSON=$(segredo "${{ steps.infra.outputs.db_secret }}")
+          CONN=$(printf '%s' "$DB_JSON" | jq -r .connectionString)
+          echo "::add-mask::$CONN"
+          ADMIN=$(printf '%s' "$APP_JSON" | jq -r .adminPassword)
+          echo "::add-mask::$ADMIN"
+
+          kubectl create secret generic garageos-os-secret \
             --namespace "${{ steps.infra.outputs.namespace }}" \
-            --from-literal=ConnectionStrings__DefaultConnection="$CONN" \
             --from-literal=Jwt__SecretKey="$JWT" \
+            --from-literal=Jwt__Issuer="$ISSUER" \
+            --from-literal=Jwt__Audience="$AUDIENCE" \
+            --from-literal=ConnectionStrings__DefaultConnection="$CONN" \
             --from-literal=Admin__Password="$ADMIN" \
             --from-literal=NEW_RELIC_LICENSE_KEY="$NEWRELIC" \
             --dry-run=client -o yaml | kubectl apply -f -
 
-      - name: Aplicar a configuracao nao-sensivel
-        run: kubectl apply -f k8s/configmap.yaml
-
-      # A tag "latest" nao serve para deploy: o kubectl nao detecta mudanca no
-      # manifesto, o rollout nao acontece, e ninguem consegue dizer qual versao
-      # esta no ar. A tag do commit resolve as duas coisas.
-      - name: Fixar a tag do commit nos manifestos
+      - name: Preencher os manifestos
         run: |
-          sed -i "s|${IMAGE}:latest|${IMAGE}:${GITHUB_SHA}|g" k8s/api-deployment.yaml k8s/jobs/migrations-job.yaml
-          grep -h "image:" k8s/api-deployment.yaml k8s/jobs/migrations-job.yaml
+          sed -i \
+            -e "s|__IMAGE__|${{ needs.imagem.outputs.image }}|" \
+            -e "s|__IRSA_ROLE_ARN__|${{ steps.infra.outputs.irsa }}|" \
+            k8s/*.yaml k8s/jobs/migrations-job.yaml
+          grep -h "image:" k8s/deployment.yaml
 
-      # Migrations rodam ANTES do rollout, num Job separado. Com o HPA, deixar
-      # isso no startup faria varias replicas migrarem em paralelo.
-      #
-      # O delete e necessario porque a especificacao de um Job e imutavel:
-      # aplicar de novo com outra tag falharia com "field is immutable".
-      - name: Aplicar migrations (Job)
+      # Migrations antes do rollout, num Job. O delete e porque a especificacao de
+      # um Job e imutavel.
+      - name: Aplicar migrations
         run: |
           NS="${{ steps.infra.outputs.namespace }}"
-          kubectl delete job garageos-migrations -n "$NS" --ignore-not-found
+          kubectl apply -f k8s/serviceaccount.yaml -f k8s/configmap.yaml
+          kubectl delete job garageos-os-migrations -n "$NS" --ignore-not-found
           kubectl apply -f k8s/jobs/migrations-job.yaml
 
-          if ! kubectl wait --for=condition=complete job/garageos-migrations -n "$NS" --timeout=300s; then
+          if ! kubectl wait --for=condition=complete job/garageos-os-migrations -n "$NS" --timeout=300s; then
             echo "::error::As migrations falharam. Log do Job abaixo."
-            kubectl logs job/garageos-migrations -n "$NS" --tail=50
+            kubectl logs job/garageos-os-migrations -n "$NS" --tail=50
             exit 1
           fi
 
-          kubectl logs job/garageos-migrations -n "$NS" --tail=20
+          kubectl logs job/garageos-os-migrations -n "$NS" --tail=20
 
-      # "kubectl apply -f k8s/" nao e recursivo, entao o Job em k8s/jobs/ nao e
-      # reaplicado aqui.
-      - name: Aplicar os manifestos da aplicacao
-        run: |
-          kubectl apply -f k8s/
-          kubectl rollout status deployment/garageos-api -n "${{ steps.infra.outputs.namespace }}" --timeout=300s
-
-      - name: Aguardar o Load Balancer
-        id: lb
+      # Usuario somente leitura da Lambda de login por CPF. Depende da tabela
+      # Clientes, por isso vem depois das migrations. Idempotente.
+      - name: Criar o usuario da Lambda
         run: |
           NS="${{ steps.infra.outputs.namespace }}"
-          URL=""
-          for i in $(seq 1 30); do
-            URL=$(kubectl get svc garageos-api -n "$NS" -o jsonpath="{.status.loadBalancer.ingress[0].hostname}" 2>/dev/null || true)
-            if [ -n "$URL" ]; then break; fi
-            sleep 10
-          done
+          segredo() { aws secretsmanager get-secret-value --secret-id "$1" --query SecretString --output text; }
 
-          if [ -z "$URL" ]; then
-            echo "::warning::O Load Balancer ainda nao tem hostname. Pode levar mais alguns minutos."
-            exit 0
+          DB=$(segredo "${{ steps.infra.outputs.db_secret }}")
+          AUTH=$(segredo "${{ steps.infra.outputs.auth_secret }}")
+          SENHA=$(printf '%s' "$DB" | jq -r .password)
+          LEITOR=$(printf '%s' "$AUTH" | jq -r .password)
+          echo "::add-mask::$SENHA"
+          echo "::add-mask::$LEITOR"
+
+          kubectl create secret generic garageos-os-db-bootstrap \
+            --namespace "$NS" \
+            --from-literal=PGHOST="$(printf '%s' "$DB" | jq -r .host)" \
+            --from-literal=PGPORT="$(printf '%s' "$DB" | jq -r .port)" \
+            --from-literal=PGDATABASE="$(printf '%s' "$DB" | jq -r .dbname)" \
+            --from-literal=PGUSER="$(printf '%s' "$DB" | jq -r .username)" \
+            --from-literal=PGPASSWORD="$SENHA" \
+            --from-literal=AUTH_READER_PASSWORD="$LEITOR" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          kubectl create configmap garageos-os-db-bootstrap-sql \
+            --namespace "$NS" \
+            --from-file=criar-auth-reader.sql=sql/criar-auth-reader.sql \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          kubectl delete job garageos-os-db-bootstrap -n "$NS" --ignore-not-found
+          kubectl apply -f k8s/jobs/db-bootstrap-job.yaml
+
+          if ! kubectl wait --for=condition=complete job/garageos-os-db-bootstrap -n "$NS" --timeout=180s; then
+            echo "::error::O bootstrap do banco falhou. Log do Job abaixo."
+            kubectl logs job/garageos-os-db-bootstrap -n "$NS" --tail=30
+            exit 1
+          fi
+      # O restart e para pegar segredo novo: rodar de novo o mesmo commit nao muda
+      # o Deployment, e o pod seguiria com as credenciais antigas.
+      - name: Aplicar e aguardar
+        run: |
+          NS="${{ steps.infra.outputs.namespace }}"
+          kubectl apply -f k8s/
+          kubectl rollout restart deployment/garageos-os -n "$NS"
+
+          if ! kubectl rollout status deployment/garageos-os -n "$NS" --timeout=300s; then
+            echo "::error::O rollout falhou. Eventos e log abaixo."
+            kubectl get pods -n "$NS"
+            kubectl describe pods -n "$NS" -l app=garageos-os | tail -30
+            kubectl logs -n "$NS" -l app=garageos-os --tail=50 || true
+            exit 1
           fi
 
-          echo "url=http://$URL" >> "$GITHUB_OUTPUT"
-          echo "Load Balancer: http://$URL"
-
-      # Prova que a aplicacao esta ATENDENDO, e nao apenas que os pods subiram.
+      # Pelo mesmo caminho do trafego real: API Gateway, NLB, Traefik, prefixo e pod.
       - name: Smoke test
-        if: steps.lb.outputs.url != ''
         run: |
-          curl --retry 20 --retry-delay 15 --retry-all-errors -fsS "${{ steps.lb.outputs.url }}/health/ready"
-          echo ""
-          echo "API respondendo em ${{ steps.lb.outputs.url }}"
-
-      - name: Resumo do deploy
-        if: always()
-        run: |
-          NS="${{ steps.infra.outputs.namespace }}"
-          {
-            echo "### Deploy - ${AMBIENTE}"
-            echo ""
-            echo "| | |"
-            echo "|---|---|"
-            echo "| Cluster | ${{ steps.infra.outputs.cluster }} |"
-            echo "| Imagem | ${IMAGE}:${GITHUB_SHA} |"
-            echo "| URL | ${{ steps.lb.outputs.url }} |"
-            echo ""
-            kubectl get deploy,svc,hpa,pods -n "$NS" 2>&1 | head -30
-          } >> "$GITHUB_STEP_SUMMARY"
+          for i in $(seq 1 12); do
+            if curl -fsS --max-time 10 "${{ steps.infra.outputs.apigw }}/os/health/ready" >/dev/null; then
+              echo "Saudavel pelo API Gateway." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::/os/health/ready nao respondeu pelo API Gateway."
+          exit 1

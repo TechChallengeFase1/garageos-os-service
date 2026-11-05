@@ -1,16 +1,15 @@
+# Configuracao nao sensivel. Segredos ficam no Secret garageos-os-secret, criado no deploy.
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: garageos-config
-  namespace: garageos
+  name: garageos-os-config
+  namespace: garageos-os
 data:
-  # Configuracoes nao-sensiveis da API (aplicadas pelo CI/CD).
-  # As variaveis do Postgres ficam no Terraform (garageos-db-config).
-  ASPNETCORE_ENVIRONMENT: "Development"
-  Jwt__Issuer: "GarageOS.Api"
-  Jwt__Audience: "GarageOS.Client"
-  Admin__Username: "admin"
-  # Identifica esta aplicacao no New Relic. Nao e segredo - a license key,
-  # que e, vem pelo Secret. Nome distinto do usado no docker compose local,
-  # para os dados de desenvolvimento nao se misturarem aos do cluster.
-  NEW_RELIC_APP_NAME: "garageOS"
+  ASPNETCORE_ENVIRONMENT: Production
+  AWS_REGION: us-east-1
+  Mensageria__Transporte: AmazonSqs
+  Mensageria__Ambiente: producao
+  Admin__Username: admin
+  # Ligado para o teste de aceite, acessado por port-forward.
+  Swagger__Enabled: "true"
+  NEW_RELIC_APP_NAME: garageos-os
