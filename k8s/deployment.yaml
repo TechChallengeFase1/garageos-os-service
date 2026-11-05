@@ -14,6 +14,8 @@ spec:
         app: garageos-os
     spec:
       serviceAccountName: os
+      # Os pods nao falam com a API do cluster. O IRSA usa outro token, projetado a parte.
+      automountServiceAccountToken: false
       containers:
         - name: api
           # A pipeline troca pelo ECR com a tag do commit.

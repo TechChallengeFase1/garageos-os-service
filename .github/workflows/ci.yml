@@ -88,3 +88,13 @@ jobs:
 
       - name: Docker build
         run: docker build -t garageos-api:${{ github.sha }} .
+
+  # So em push na main: PR nunca chega aqui, e o Quality Gate ja passou.
+  cd:
+    name: CD
+    needs: build-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/cd.yml
+    permissions:
+      id-token: write
+      contents: read

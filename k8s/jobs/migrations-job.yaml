@@ -22,6 +22,8 @@ spec:
     spec:
       restartPolicy: Never
       serviceAccountName: os
+      # Os pods nao falam com a API do cluster. O IRSA usa outro token, projetado a parte.
+      automountServiceAccountToken: false
       containers:
         - name: migrations
           image: __IMAGE__

@@ -271,7 +271,7 @@ Se algum passo anterior faltar, a pipeline falha ao procurar os parâmetros no S
 
 ### Deploy automático (caminho normal)
 
-Depois que a CI da `main` termina verde, `.github/workflows/cd.yml` entra em ação. Com a infra destruída, ele avisa e pula o deploy, em vez de falhar.
+Depois que build, testes e Sonar passam na `main`, a CI chama `.github/workflows/cd.yml`. Com a infra destruída, ele avisa e pula o deploy, em vez de falhar.
 
 | Etapa | O que faz |
 |---|---|
@@ -283,7 +283,7 @@ Depois que a CI da `main` termina verde, `.github/workflows/cd.yml` entra em aç
 | Migrations | Aplica o Job e **aguarda concluir** antes do rollout |
 | Usuário da Lambda | Cria o `auth_reader`, usado no login por CPF |
 | Deploy | `kubectl apply -f k8s/` + `rollout restart` + `rollout status` |
-| Smoke test | `curl` em `/os/health/ready`, pelo NLB do Traefik |
+| Smoke test | `curl` em `/os/health/ready`, pelo API Gateway |
 
 O deploy usa o environment `producao` do GitHub — configurar *required reviewers* ali faz o deploy aguardar aprovação em vez de disparar sozinho.
 

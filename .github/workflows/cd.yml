@@ -1,7 +1,10 @@
 name: CD
 
-# Imagem no ECR e deploy no EKS, depois que a CI da main termina verde. Tambem roda
-# a mao, em Actions > CD > Run workflow.
+# Imagem no ECR e deploy no EKS. A CI chama este workflow como ultimo passo, so em
+# push na main, depois de build, testes e Sonar. Tambem roda a mao, em Actions > CD.
+#
+# Chamado pela CI, e nao por workflow_run: aquele gatilho tambem dispara para fork
+# com branch chamada main, e executaria codigo de fora com as credenciais da AWS.
 #
 # A infra e ligada e destruida para economizar: sem o cluster, o job "Verificar"
 # so avisa e o deploy e pulado, em vez de falhar a cada merge.
@@ -9,10 +12,7 @@ name: CD
 # Nada de endereco ou segredo escrito aqui: tudo vem do SSM e do Secrets Manager.
 
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
-    branches: [main]
+  workflow_call:
   workflow_dispatch:
 
 permissions:
@@ -24,8 +24,7 @@ env:
   AWS_ROLE: arn:aws:iam::266380777968:role/garageos-github-actions
   AMBIENTE: producao
   SERVICO: os
-  # No workflow_run, github.sha e o ultimo commit da main, nao o que passou na CI.
-  COMMIT: ${{ github.event.workflow_run.head_sha || github.sha }}
+  COMMIT: ${{ github.sha }}
 
 concurrency:
   group: cd-os
@@ -34,14 +33,13 @@ concurrency:
 jobs:
   verificar:
     name: Verificar
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       no_ar: ${{ steps.infra.outputs.no_ar }}
     steps:
       - name: Autenticar na AWS via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
           role-to-assume: ${{ env.AWS_ROLE }}
           role-session-name: cd-os-${{ github.run_id }}
@@ -70,18 +68,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-        with:
-          ref: ${{ env.COMMIT }}
 
       - name: Autenticar na AWS via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
           role-to-assume: ${{ env.AWS_ROLE }}
           role-session-name: cd-os-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Entrar no ECR
-        uses: aws-actions/amazon-ecr-login@v2
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2
 
       # O ECR tem tags imutaveis: rodar de novo o mesmo commit reaproveita a imagem.
       - name: Build e push
@@ -108,18 +104,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-        with:
-          ref: ${{ env.COMMIT }}
 
       - name: Autenticar na AWS via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
           role-to-assume: ${{ env.AWS_ROLE }}
           role-session-name: cd-os-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Instalar kubectl
-        uses: azure/setup-kubectl@v4
+        uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4
 
       # O contrato entre os repositorios. Sem a infra de pe, falha aqui, antes de
       # tocar em qualquer coisa.
@@ -133,6 +127,7 @@ jobs:
             echo "namespace=$(ler "/garageos/${AMBIENTE}/eks/namespace/${SERVICO}")"
             echo "app_secret=$(ler "/garageos/app/secret-arn")"
             echo "irsa=$(ler "/garageos/${AMBIENTE}/services/${SERVICO}/irsa-role-arn")"
+            echo "apigw=$(ler "/garageos/${AMBIENTE}/apigw/url")"
             echo "db_secret=$(ler "/garageos/${AMBIENTE}/services/${SERVICO}/db-secret-arn")"
             echo "auth_secret=$(ler "/garageos/${AMBIENTE}/services/${SERVICO}/rds/auth-reader-secret-arn")"
           } >> "$GITHUB_OUTPUT"
@@ -251,16 +246,15 @@ jobs:
             exit 1
           fi
 
-      # Pelo mesmo caminho do trafego real: NLB, Traefik, prefixo e pod.
+      # Pelo mesmo caminho do trafego real: API Gateway, NLB, Traefik, prefixo e pod.
       - name: Smoke test
         run: |
-          NLB=$(kubectl get svc traefik -n traefik -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
           for i in $(seq 1 12); do
-            if curl -fsS --max-time 10 "http://$NLB/os/health/ready" >/dev/null; then
-              echo "Saudavel pelo NLB." >> "$GITHUB_STEP_SUMMARY"
+            if curl -fsS --max-time 10 "${{ steps.infra.outputs.apigw }}/os/health/ready" >/dev/null; then
+              echo "Saudavel pelo API Gateway." >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
             sleep 10
           done
-          echo "::error::/os/health/ready nao respondeu pelo NLB."
+          echo "::error::/os/health/ready nao respondeu pelo API Gateway."
           exit 1
