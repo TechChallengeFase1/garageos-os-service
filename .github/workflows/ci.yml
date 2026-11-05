@@ -29,10 +29,30 @@ jobs:
         run: dotnet build Code/GarageOS.slnx --configuration Release --no-restore
 
       - name: Unit tests
-        run: dotnet test Code/GarageOS.UnitTests/GarageOS.UnitTests.csproj --configuration Release --no-build
+        run: dotnet test Code/GarageOS.UnitTests/GarageOS.UnitTests.csproj --configuration Release --no-build --settings Code/coverlet.runsettings --results-directory TestResults --logger trx
+
+      - name: BDD
+        run: dotnet test Code/GarageOS.OsService.Bdd/GarageOS.OsService.Bdd.csproj --configuration Release --no-build --settings Code/coverlet.runsettings --results-directory TestResults --logger trx
 
       - name: Integration tests
-        run: dotnet test Code/GarageOS.IntegrationTests/GarageOS.IntegrationTests.csproj --configuration Release --no-build
+        run: dotnet test Code/GarageOS.IntegrationTests/GarageOS.IntegrationTests.csproj --configuration Release --no-build --settings Code/coverlet.runsettings --results-directory TestResults --logger trx
+
+      # Junta unitarios, integracao e BDD num relatorio so, por servico.
+      - name: Relatorio de cobertura
+        if: always()
+        run: |
+          dotnet tool install --global dotnet-reportgenerator-globaltool --version 5.5.12
+          reportgenerator -reports:"TestResults/**/coverage.cobertura.xml" -targetdir:coverage -reporttypes:"MarkdownSummaryGithub;Html;Cobertura"
+          cat coverage/SummaryGithub.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publicar o relatorio
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cobertura
+          path: |
+            coverage/
+            TestResults/**/*.trx
 
       - name: Docker build
         run: docker build -t garageos-api:${{ github.sha }} .
