@@ -4,5 +4,6 @@
   <Project Path="GarageOS.Domain/GarageOS.Domain.csproj" />
   <Project Path="GarageOS.Infrastructure/GarageOS.Infrastructure.csproj" />
   <Project Path="GarageOS.IntegrationTests/GarageOS.IntegrationTests.csproj" />
+  <Project Path="GarageOS.OsService.Bdd/GarageOS.OsService.Bdd.csproj" />
   <Project Path="GarageOS.UnitTests/GarageOS.UnitTests.csproj" />
 </Solution>
