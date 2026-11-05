@@ -16,6 +16,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # O Sonar usa o historico para saber o que e codigo novo.
+          fetch-depth: 0
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -24,6 +27,23 @@ jobs:
 
       - name: Restore
         run: dotnet restore Code/GarageOS.slnx
+
+      - name: Instalar o SonarScanner
+        run: dotnet tool install --global dotnet-sonarscanner --version 12.1.0
+
+      # Precisa envolver o build. O Quality Gate reprova o job, e com ele o PR.
+      - name: Iniciar a analise do Sonar
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: >-
+          dotnet sonarscanner begin
+          /k:"TechChallengeFase1_garageos-os-service"
+          /o:"techchallengefase1"
+          /d:sonar.host.url="https://sonarcloud.io"
+          /d:sonar.token="$SONAR_TOKEN"
+          /d:sonar.cs.opencover.reportsPaths="TestResults/**/coverage.opencover.xml"
+          /d:sonar.exclusions="**/Migrations/**,**/Program.cs"
+          /d:sonar.qualitygate.wait=true
 
       - name: Build
         run: dotnet build Code/GarageOS.slnx --configuration Release --no-restore
@@ -36,6 +56,11 @@ jobs:
 
       - name: Integration tests
         run: dotnet test Code/GarageOS.IntegrationTests/GarageOS.IntegrationTests.csproj --configuration Release --no-build --settings Code/coverlet.runsettings --results-directory TestResults --logger trx
+
+      - name: Enviar a analise ao Sonar
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: dotnet sonarscanner end /d:sonar.token="$SONAR_TOKEN"
 
       # Junta unitarios, integracao e BDD num relatorio so, por servico.
       - name: Relatorio de cobertura

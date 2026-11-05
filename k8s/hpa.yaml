@@ -1,15 +1,15 @@
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: garageos-api-hpa
-  namespace: garageos
+  name: garageos-os
+  namespace: garageos-os
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: garageos-api
-  minReplicas: 2
-  maxReplicas: 10
+    name: garageos-os
+  minReplicas: 1
+  maxReplicas: 3
   metrics:
     - type: Resource
       resource:

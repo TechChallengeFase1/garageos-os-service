@@ -271,18 +271,19 @@ Se algum passo anterior faltar, a pipeline falha ao procurar os parâmetros no S
 
 ### Deploy automático (caminho normal)
 
-Todo push na `main` dispara `.github/workflows/cd.yml`:
+Depois que a CI da `main` termina verde, `.github/workflows/cd.yml` entra em ação. Com a infra destruída, ele avisa e pula o deploy, em vez de falhar.
 
 | Etapa | O que faz |
 |---|---|
-| Build e testes | `dotnet build`, testes unitários e de integração |
-| Imagem Docker | Build e push para o Docker Hub: `:latest` e `:{sha}` |
+| Verificar | Confere no SSM se o cluster e o ECR existem |
+| Imagem Docker | Build e push para o ECR, com a tag do commit. Rodar de novo o mesmo commit reaproveita a imagem |
 | Autenticação na AWS | **OIDC** — nenhuma credencial estática existe neste repositório |
 | Descoberta | Lê cluster, namespace e ARNs dos segredos no SSM Parameter Store |
 | Secret | Lê o Secrets Manager e cria/atualiza o Secret do Kubernetes |
 | Migrations | Aplica o Job e **aguarda concluir** antes do rollout |
-| Deploy | `kubectl apply -f k8s/` + `rollout status` |
-| Smoke test | `curl` em `/health/ready` pelo Load Balancer |
+| Usuário da Lambda | Cria o `auth_reader`, usado no login por CPF |
+| Deploy | `kubectl apply -f k8s/` + `rollout restart` + `rollout status` |
+| Smoke test | `curl` em `/os/health/ready`, pelo NLB do Traefik |
 
 O deploy usa o environment `producao` do GitHub — configurar *required reviewers* ali faz o deploy aguardar aprovação em vez de disparar sozinho.
 
@@ -295,7 +296,7 @@ aws eks update-kubeconfig --name "$(aws ssm get-parameter --name /garageos/produ
 ```
 
 ```bash
-kubectl apply -f k8s/ -n garageos
+kubectl apply -f k8s/ -n garageos-os
 ```
 
 ```bash
