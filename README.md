@@ -432,6 +432,20 @@ cd Code && ./sonar-scan.sh
 
 No Windows, use `./sonar-scan.ps1`. Requer `dotnet-sonarscanner` como ferramenta global e `SONAR_TOKEN` preenchido no `.env`.
 
+### Cobertura
+
+**92,1% de linhas**, somando os testes unitários, de integração e BDD. A CI publica o relatório HTML no artifact `cobertura`, mostra o resumo na execução e falha abaixo de 80%.
+
+Ficam de fora só as migrations, geradas pelo EF, e o `Program.cs`, que só liga as peças e é exercitado pelos testes de integração. As regras estão em [`coverlet.runsettings`](Code/coverlet.runsettings).
+
+### BDD
+
+[`CicloDeVidaDaOS.feature`](Code/GarageOS.OsService.Bdd/Features/CicloDeVidaDaOS.feature) descreve em português o ciclo da OS, com Reqnroll: caminho feliz, orçamento recusado, peça indisponível, pagamento recusado e execução com falha. Roda a saga e a OS reais, com o Billing e o Execução simulados em memória.
+
+```bash
+dotnet test Code/GarageOS.OsService.Bdd
+```
+
 ---
 
 ## Estrutura do repositório
