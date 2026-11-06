@@ -84,13 +84,14 @@ public class OrdemDeServicoRepository : IOrdemDeServicoRepository
     public async Task<int> ObterProximoSequencialDoAnoAsync(int ano)
     {
         // Uma sequência por ano, criada sob demanda. O nome vem de um inteiro,
-        // não de entrada do usuário, então a interpolação é segura.
+        // não de entrada do usuário, então a interpolação é segura. Parâmetro não
+        // serve aqui: SQL não aceita parâmetro no lugar do nome de um objeto.
         var sequencia = $"\"SeqNumeroOS{ano}\"";
 
-        await _context.Database.ExecuteSqlRawAsync($"CREATE SEQUENCE IF NOT EXISTS {sequencia}");
+        await _context.Database.ExecuteSqlRawAsync($"CREATE SEQUENCE IF NOT EXISTS {sequencia}"); // NOSONAR
 
         var proximo = await _context.Database
-            .SqlQueryRaw<long>($"SELECT nextval('{sequencia}') AS \"Value\"")
+            .SqlQueryRaw<long>($"SELECT nextval('{sequencia}') AS \"Value\"") // NOSONAR
             .SingleAsync();
 
         return (int)proximo;
