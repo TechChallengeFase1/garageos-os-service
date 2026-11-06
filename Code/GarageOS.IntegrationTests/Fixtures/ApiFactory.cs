@@ -26,6 +26,7 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         // Sem SQS nos testes: o MassTransit roda em memória, com o outbox e o
         // repositório da saga de verdade, no PostgreSQL do container.
         builder.UseSetting("Mensageria:Transporte", "InMemory");
+        builder.UseSetting("Jwt:SecretKey", "chave-de-teste-com-pelo-menos-32-caracteres");
 
         builder.ConfigureServices(services =>
         {

@@ -42,7 +42,7 @@ jobs:
           /d:sonar.host.url="https://sonarcloud.io"
           /d:sonar.token="$SONAR_TOKEN"
           /d:sonar.cs.opencover.reportsPaths="TestResults/**/coverage.opencover.xml"
-          /d:sonar.exclusions="**/Migrations/**,**/Program.cs"
+          /d:sonar.exclusions="**/Migrations/**,**/Program.cs,scripts/**,Code/sonar-scan.sh"
           /d:sonar.qualitygate.wait=true
 
       - name: Build

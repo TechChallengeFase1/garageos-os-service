@@ -26,6 +26,7 @@
     <ProjectReference Include="..\GarageOS.Domain\GarageOS.Domain.csproj" />
     <ProjectReference Include="..\GarageOS.Application\GarageOS.Application.csproj" />
     <ProjectReference Include="..\GarageOS.Infrastructure\GarageOS.Infrastructure.csproj" />
+    <ProjectReference Include="..\GarageOS.Api\GarageOS.Api.csproj" />
   </ItemGroup>
 
 </Project>

@@ -45,8 +45,7 @@ public static class ServiceCollectionExtensions
         services.AddHttpContextAccessor();
         services.AddTransient<PropagarCabecalhosHandler>();
         services.AddHttpClient<IEstoqueClient, EstoqueClient>(client =>
-                client.BaseAddress = new Uri(configuration["Servicos:Execucao:BaseUrl"]
-                    ?? "http://execucao.garageos-execucao.svc.cluster.local/"))
+                client.BaseAddress = new Uri(configuration["Servicos:Execucao:BaseUrl"]!))
             .AddHttpMessageHandler<PropagarCabecalhosHandler>()
             .AddStandardResilienceHandler();
 
