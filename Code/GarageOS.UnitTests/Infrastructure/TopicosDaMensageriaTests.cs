@@ -1,6 +1,7 @@
 using System.Reflection;
 using FluentAssertions;
 using GarageOS.Infrastructure.Mensageria;
+using GarageOS.Infrastructure.Saga;
 using GarageOS.Contracts.V1;
 using MassTransit;
 
@@ -34,6 +35,7 @@ public class TopicosDaMensageriaTests
 
         topologia.GetMessageTopology<GerarOrcamento>().EntityName.Should().Be("garageos-producao-gerar-orcamento");
         topologia.GetMessageTopology<PagamentoConfirmado>().EntityName.Should().Be("garageos-producao-pagamento-confirmado");
+        topologia.GetMessageTopology<PrazoPagamentoExpirado>().EntityName.Should().Be("garageos-producao-os-prazo-pagamento-expirado");
     }
 
     [Fact]
@@ -41,7 +43,8 @@ public class TopicosDaMensageriaTests
     {
         var topologia = Topologia("garageos-producao");
         var contratos = typeof(GerarOrcamento).Assembly.GetTypes()
-            .Where(t => t.Namespace == typeof(GerarOrcamento).Namespace && t.GetCustomAttribute<EntityNameAttribute>() is not null)
+            .Concat(typeof(PrazoAprovacaoExpirado).Assembly.GetTypes())
+            .Where(t => t.GetCustomAttribute<EntityNameAttribute>() is not null)
             .ToList();
 
         contratos.Should().NotBeEmpty();
