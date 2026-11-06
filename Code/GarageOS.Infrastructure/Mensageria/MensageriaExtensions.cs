@@ -104,7 +104,7 @@ public static class MensageriaExtensions
         return services;
     }
 
-    /// <summary>Põe o prefixo do ambiente nos tópicos dos contratos</summary>
+    /// <summary>Põe o prefixo do ambiente em toda mensagem com nome declarado</summary>
     /// <remarks>
     /// O [EntityName] tem prioridade sobre o formatador de nomes, que por isso só vale
     /// para as mensagens sem o atributo, como as de falha (Fault). Sem isto, o tópico
@@ -114,7 +114,10 @@ public static class MensageriaExtensions
     {
         var definir = typeof(MensageriaExtensions).GetMethod(nameof(DefinirTopico), BindingFlags.NonPublic | BindingFlags.Static)!;
 
-        foreach (var tipo in typeof(GerarOrcamento).Assembly.GetTypes().Where(t => t.Namespace == typeof(GerarOrcamento).Namespace))
+        // Os contratos ficam na Application; os prazos que a saga agenda para si, aqui.
+        var tipos = typeof(GerarOrcamento).Assembly.GetTypes().Concat(typeof(PrazoAprovacaoExpirado).Assembly.GetTypes());
+
+        foreach (var tipo in tipos)
         {
             if (tipo.GetCustomAttribute<EntityNameAttribute>() is { } atributo)
                 definir.MakeGenericMethod(tipo).Invoke(null, [cfg, $"{prefixo}-{atributo.EntityName}"]);
