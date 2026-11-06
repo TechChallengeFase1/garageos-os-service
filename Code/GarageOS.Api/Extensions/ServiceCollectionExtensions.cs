@@ -182,7 +182,7 @@ public static class ServiceCollectionExtensions
             })
         };
 
-        return context.Response.WriteAsJsonAsync(resposta);
+        return context.Response.WriteAsJsonAsync(resposta, context.RequestAborted);
     }
 
     /// <summary>Configura a autenticação JWT com validação de token</summary>
