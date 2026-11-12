@@ -32,6 +32,8 @@ public class CorrelacaoNasMensagensTests : IAsyncLifetime
             .AddMassTransitTestHarness(x =>
             {
                 x.AddConsumer<ConsumidorDoPedido>();
+                // Como no Billing: o outbox em memória entrega depois que o consumidor termina.
+                x.AddConfigureEndpointsCallback((context, _, cfg) => cfg.UseInMemoryOutbox(context));
                 x.UsingInMemory((context, cfg) =>
                 {
                     cfg.UsarCorrelacao(context);
