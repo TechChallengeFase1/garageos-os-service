@@ -96,3 +96,6 @@ infra/.terraform.lock.hcl
 
 # Gerado pelo Reqnroll no build
 *.feature.cs
+
+# Python
+__pycache__/
