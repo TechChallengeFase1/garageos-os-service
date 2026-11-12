@@ -22,7 +22,15 @@ Uma OS da saga, nos três serviços:
 
 ```sql
 SELECT entity.name, context.MessageType, message FROM Log
-WHERE context.CorrelationId = '<id>' SINCE 1 day ago
+WHERE context.CorrelationId = '<id>' AND message NOT LIKE 'Executed DbCommand%' SINCE 1 day ago
+```
+
+Cada operação tem o seu `correlationId`: o pedido de orçamento, o aviso de pagamento do Mercado Pago (que
+chega sem o cabeçalho e ganha um id no Billing) e a execução. Para a OS inteira, use `context.OrdemDeServicoId`:
+
+```sql
+SELECT entity.name, context.CorrelationId, context.MessageType, message FROM Log
+WHERE context.OrdemDeServicoId = '<id da OS>' AND message NOT LIKE 'Executed DbCommand%' SINCE 1 day ago
 ```
 
 ## Dashboard

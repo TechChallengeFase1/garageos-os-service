@@ -1,5 +1,7 @@
 # GarageOS — OS Service
 
+[![CI](https://github.com/TechChallengeFase1/garageos-os-service/actions/workflows/ci.yml/badge.svg)](https://github.com/TechChallengeFase1/garageos-os-service/actions/workflows/ci.yml) [![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=TechChallengeFase1_garageos-os-service&metric=alert_status)](https://sonarcloud.io/summary/overall?id=TechChallengeFase1_garageos-os-service) [![Cobertura](https://sonarcloud.io/api/project_badges/measure?project=TechChallengeFase1_garageos-os-service&metric=coverage)](https://sonarcloud.io/component_measures?id=TechChallengeFase1_garageos-os-service&metric=coverage) [![Bugs](https://sonarcloud.io/api/project_badges/measure?project=TechChallengeFase1_garageos-os-service&metric=bugs)](https://sonarcloud.io/summary/overall?id=TechChallengeFase1_garageos-os-service) [![Vulnerabilidades](https://sonarcloud.io/api/project_badges/measure?project=TechChallengeFase1_garageos-os-service&metric=vulnerabilities)](https://sonarcloud.io/summary/overall?id=TechChallengeFase1_garageos-os-service)
+
 Sistema de gestão para oficinas mecânicas — controle de clientes, veículos, serviços, estoque e ordens de serviço (OS), com fluxo completo de orçamento, execução e acompanhamento público pelo cliente.
 
 Projeto desenvolvido como **Tech Challenge** da Pós-graduação em Arquitetura de Software.
@@ -50,7 +52,8 @@ Entregar uma API REST que cubra a operação ponta a ponta de uma oficina:
 | Logs | Serilog — JSON compacto com correlation ID |
 | Observabilidade | New Relic — agente .NET (profiler do CLR), `nri-bundle` no cluster e custom events de negócio |
 | Testes | xUnit, Moq, FluentAssertions, Testcontainers |
-| Qualidade | SonarQube (Community) |
+| Qualidade | SonarCloud, com Quality Gate obrigatório no PR |
+| Mensageria | Amazon SNS/SQS com MassTransit 8.5 (Apache-2.0) |
 | Container | Docker + Docker Compose |
 | Orquestração | Amazon EKS (Kubernetes) |
 | CI/CD | GitHub Actions com OIDC |
@@ -63,26 +66,42 @@ Arquitetura de código: **Clean Architecture**, com separação em `Domain`, `Ap
 
 ```mermaid
 flowchart LR
-    C(["Cliente"]) --> GW["API Gateway"]
-    GW -->|"POST /auth"| L["Lambda auth<br/>CPF para JWT"]
-    GW -.->|"valida token"| AZ["Lambda authorizer"]
-    GW -->|"rotas protegidas"| NLB["Network<br/>Load Balancer"]
-    NLB --> API["garageos-app — este repo<br/>API .NET no EKS<br/>2 a 10 replicas"]
-    L --> DB[("RDS<br/>PostgreSQL")]
-    API --> DB
-    API -.-> NR["New Relic"]
+    U(["Cliente e equipe"]) -->|HTTPS| GW["API Gateway"]
+    MP["Mercado Pago"] -->|"webhook assinado"| GW
+    GW -->|"POST /auth"| LA["Lambda auth<br/>CPF para JWT"]
+    GW -.->|"valida o token"| AZ["Lambda authorizer"]
+    LA -->|"auth_reader,<br/>só leitura"| DBOS
+    GW --> NLB["NLB"] --> TR["Traefik<br/>/os /billing /execucao"]
 
-    style API stroke-width:3px
+    subgraph EKS["Amazon EKS"]
+        TR --> OS["OS Service<br/>orquestrador da saga"]
+        TR --> BI["Billing"]
+        TR --> EX["Execução"]
+    end
+
+    OS --> DBOS[("RDS PostgreSQL<br/>OS + saga + outbox")]
+    EX --> DBEX[("RDS PostgreSQL<br/>estoque e execução")]
+    BI --> DY[("DynamoDB<br/>orçamentos e pagamentos")]
+    BI -->|"Checkout Pro"| MP
+    OS -->|"HTTP: confere peças"| EX
+
+    OS <-->|"comandos e eventos"| BUS{{"SNS + SQS<br/>MassTransit"}}
+    BI <--> BUS
+    EX <--> BUS
+
+    OS & BI & EX -.-> NR["New Relic<br/>APM, logs, eventos"]
 ```
 
 | Repositório | Responsabilidade |
 |---|---|
-| **`garageos-app`** *(este)* | API .NET, manifestos Kubernetes, imagem Docker e CI/CD da aplicação |
-| [`garageos-infra-database`](https://github.com/TechChallengeFase1/garageos-infra-database) | RDS PostgreSQL e o `bootstrap/` (state remoto, OIDC, VPC, segredos compartilhados) |
-| [`garageos-infra-k8s`](https://github.com/TechChallengeFase1/garageos-infra-k8s) | Cluster EKS, node group, Access Entries, namespace, `metrics-server` e `nri-bundle` |
-| [`garageos-lambda-auth`](https://github.com/TechChallengeFase1/garageos-lambda-auth) | Lambda de autenticação por CPF e API Gateway HTTP API |
+| **`garageos-os-service`** *(este)* | OS, clientes, veículos, catálogo de serviços e o orquestrador da saga |
+| [`garageos-billing-service`](https://github.com/TechChallengeFase1/garageos-billing-service) | Orçamentos e pagamentos (Mercado Pago), em DynamoDB |
+| [`garageos-execucao-service`](https://github.com/TechChallengeFase1/garageos-execucao-service) | Estoque, reserva de peças, execução e aging |
+| [`garageos-infra-database`](https://github.com/TechChallengeFase1/garageos-infra-database) | VPC, OIDC, state remoto, segredos compartilhados |
+| [`garageos-infra-k8s`](https://github.com/TechChallengeFase1/garageos-infra-k8s) | Cluster EKS, Traefik, New Relic |
+| [`garageos-lambda-auth`](https://github.com/TechChallengeFase1/garageos-lambda-auth) | API Gateway, login por CPF e authorizer |
 
-Diagrama completo, com VPC, subnets e fluxo de CI/CD: [docs/diagramas/componentes.md](docs/diagramas/componentes.md).
+Rotas do gateway, sequência da saga e entrega contínua: [docs/arquitetura-fase4.md](docs/arquitetura-fase4.md).
 
 ---
 
@@ -188,7 +207,7 @@ sequenceDiagram
 
 Mensageria: Amazon SQS/SNS com MassTransit 8.5.11 (Apache-2.0), contratos em [`Contracts/V1/Mensagens.cs`](Code/GarageOS.Application/Contracts/V1/Mensagens.cs), idênticos nos três serviços.
 
-Há ainda os CRUDs de `Clientes`, `Veiculos`, `Servicos` e `Estoques`, todos protegidos por JWT.
+Há ainda os CRUDs de `Clientes`, `Veiculos` e `Servicos`, todos protegidos por JWT. O estoque passou ao Execução Service.
 
 ---
 
@@ -353,6 +372,11 @@ A publicação passa pela interface `IMetricasDeNegocio` (`GarageOS.Application/
 | `OrdemDeServicoCriada` | `numeroOS`, `clienteId` | `AbrirOrdemDeServicoCompletaUseCase`, após persistir |
 | `OrdemDeServicoStatus` | `numeroOS`, `statusAnterior`, `statusNovo`, `minutosNoStatus` | `AlterarStatusOrdemDeServicoUseCase` |
 | `OrdemDeServicoFalha` | `numeroOS`, `motivo` | Falhas no processamento de uma ordem de serviço |
+| `SagaEtapa` | `numeroOS`, `etapa` | A cada passo da saga |
+| `SagaCompensacao` | `numeroOS`, `falha`, `compensacoes` | Quando a saga desfaz passos |
+
+Todo evento leva também o `correlationId`, que atravessa as mensagens entre os três serviços. Como isso
+funciona, as consultas e o dashboard da saga: [docs/observabilidade](docs/observabilidade/README.md).
 
 Duas garantias que valem conhecer antes de mexer:
 
@@ -438,6 +462,16 @@ No Windows, use `./sonar-scan.ps1`. Requer `dotnet-sonarscanner` como ferramenta
 **92,1% de linhas**, somando os testes unitários, de integração e BDD. A CI publica o relatório HTML no artifact `cobertura`, mostra o resumo na execução e falha abaixo de 80%.
 
 Ficam de fora só as migrations, geradas pelo EF, e o `Program.cs`, que só liga as peças e é exercitado pelos testes de integração. As regras estão em [`coverlet.runsettings`](Code/coverlet.runsettings). No Sonar saem também `scripts/` e `Code/sonar-scan.sh`, ferramentas auxiliares que não vão para produção.
+
+### Ponta a ponta no cluster
+
+Com os três serviços no ar, pelo API Gateway:
+
+- **Postman:** [`Code/Postman/GarageOS.Fase4.postman_collection.json`](Code/Postman/GarageOS.Fase4.postman_collection.json), com pastas para o caminho feliz, o cliente e os dois cenários de compensação. Validada com o Newman:
+  ```bash
+  npx newman run Code/Postman/GarageOS.Fase4.postman_collection.json --env-var baseUrl=<url do gateway> --env-var adminPassword=<senha> --folder "01 - Autenticação" --folder "02 - Cadastros" --folder "03 - Ordem de serviço e saga" --folder "Cenário - cliente recusa"
+  ```
+- **Script:** [`scripts/e2e/saga_e2e.py`](scripts/e2e/saga_e2e.py) faz o mesmo caminho e lê a URL e a senha de Admin da AWS (`python scripts/e2e/saga_e2e.py iniciar`, `continuar`, `falhar`, `recusar`).
 
 ### BDD
 

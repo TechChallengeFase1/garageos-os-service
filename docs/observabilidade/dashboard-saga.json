@@ -250,7 +250,7 @@
                 "accountIds": [
                   0
                 ],
-                "query": "SELECT entity.name, message FROM Log WHERE entity.name IN ('garageos-os', 'garageos-billing', 'garageos-execucao') AND level IN ('Error', 'Fatal', 'error', 'fatal') SINCE 1 day ago LIMIT 50"
+                "query": "SELECT entity.name, message FROM Log WHERE entity.name IN ('garageos-os', 'garageos-billing', 'garageos-execucao') AND level IN ('Error', 'Fatal', 'error', 'fatal') AND message NOT LIKE 'Executed DbCommand%' SINCE 1 day ago LIMIT 50"
               }
             ]
           }
@@ -300,7 +300,7 @@
                 "accountIds": [
                   0
                 ],
-                "query": "SELECT entity.name, context.MessageType, message FROM Log WHERE entity.name IN ('garageos-os', 'garageos-billing', 'garageos-execucao') AND context.CorrelationId = 'COLE-O-ID-AQUI' SINCE 1 day ago LIMIT 100"
+                "query": "SELECT entity.name, context.MessageType, message FROM Log WHERE entity.name IN ('garageos-os', 'garageos-billing', 'garageos-execucao') AND context.CorrelationId = 'COLE-O-ID-AQUI' AND message NOT LIKE 'Executed DbCommand%' SINCE 1 day ago LIMIT 100"
               }
             ]
           }
