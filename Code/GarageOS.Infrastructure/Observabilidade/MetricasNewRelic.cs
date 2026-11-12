@@ -68,6 +68,9 @@ public class MetricasNewRelic : IMetricasDeNegocio
 
     private void Registrar(string evento, Dictionary<string, object> atributos)
     {
+        if (Mensageria.Correlacao.Atual is { } correlationId)
+            atributos["correlationId"] = correlationId;
+
         try
         {
             NewRelic.Api.Agent.NewRelic.RecordCustomEvent(evento, atributos);

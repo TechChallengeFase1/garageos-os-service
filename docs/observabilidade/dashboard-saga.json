@@ -1,0 +1,311 @@
+{
+  "name": "GarageOS - Saga da OS",
+  "description": "Ciclo da ordem de servico entre OS, Billing e Execucao",
+  "permissions": "PUBLIC_READ_WRITE",
+  "pages": [
+    {
+      "name": "Saga",
+      "description": null,
+      "widgets": [
+        {
+          "title": "OS criadas",
+          "layout": {
+            "column": 1,
+            "row": 1,
+            "width": 4,
+            "height": 3
+          },
+          "visualization": {
+            "id": "viz.billboard"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  0
+                ],
+                "query": "SELECT count(*) AS 'OS criadas' FROM OrdemDeServicoCriada SINCE 1 day ago"
+              }
+            ]
+          }
+        },
+        {
+          "title": "OS finalizadas x canceladas",
+          "layout": {
+            "column": 5,
+            "row": 1,
+            "width": 4,
+            "height": 3
+          },
+          "visualization": {
+            "id": "viz.billboard"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  0
+                ],
+                "query": "SELECT filter(count(*), WHERE statusNovo = 'Finalizada') AS 'Finalizadas', filter(count(*), WHERE statusNovo = 'Cancelada') AS 'Canceladas' FROM OrdemDeServicoStatus SINCE 1 day ago"
+              }
+            ]
+          }
+        },
+        {
+          "title": "Compensacoes",
+          "layout": {
+            "column": 9,
+            "row": 1,
+            "width": 4,
+            "height": 3
+          },
+          "visualization": {
+            "id": "viz.billboard"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  0
+                ],
+                "query": "SELECT count(*) AS 'Compensacoes' FROM SagaCompensacao SINCE 1 day ago"
+              }
+            ]
+          }
+        },
+        {
+          "title": "Funil da saga (OS distintas por etapa)",
+          "layout": {
+            "column": 1,
+            "row": 4,
+            "width": 6,
+            "height": 4
+          },
+          "visualization": {
+            "id": "viz.funnel"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  0
+                ],
+                "query": "SELECT funnel(numeroOS, WHERE etapa = 'AguardandoOrcamento' AS 'Orcamento pedido', WHERE etapa = 'AguardandoAprovacao' AS 'Aguardando aprovacao', WHERE etapa = 'AguardandoPagamento' AS 'Aguardando pagamento', WHERE etapa = 'EmExecucao' AS 'Em execucao', WHERE etapa = 'Finalizada' AS 'Finalizada') FROM SagaEtapa SINCE 1 day ago"
+              }
+            ]
+          }
+        },
+        {
+          "title": "Compensacoes por motivo",
+          "layout": {
+            "column": 7,
+            "row": 4,
+            "width": 6,
+            "height": 4
+          },
+          "visualization": {
+            "id": "viz.bar"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  0
+                ],
+                "query": "SELECT count(*) FROM SagaCompensacao FACET falha SINCE 1 day ago"
+              }
+            ]
+          }
+        },
+        {
+          "title": "Tempo medio em cada status da OS (min)",
+          "layout": {
+            "column": 1,
+            "row": 8,
+            "width": 6,
+            "height": 3
+          },
+          "visualization": {
+            "id": "viz.bar"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  0
+                ],
+                "query": "SELECT average(minutosNoStatus) FROM OrdemDeServicoStatus FACET statusAnterior SINCE 1 day ago"
+              }
+            ]
+          }
+        },
+        {
+          "title": "Orcamentos e execucoes por status",
+          "layout": {
+            "column": 7,
+            "row": 8,
+            "width": 6,
+            "height": 3
+          },
+          "visualization": {
+            "id": "viz.table"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  0
+                ],
+                "query": "SELECT count(*) FROM OrcamentoStatus, ExecucaoStatus FACET eventType(), statusNovo SINCE 1 day ago"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Servicos",
+      "description": null,
+      "widgets": [
+        {
+          "title": "Requisicoes por servico",
+          "layout": {
+            "column": 1,
+            "row": 1,
+            "width": 6,
+            "height": 3
+          },
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  0
+                ],
+                "query": "SELECT rate(count(*), 1 minute) FROM Transaction WHERE appName IN ('garageos-os', 'garageos-billing', 'garageos-execucao') FACET appName TIMESERIES SINCE 3 hours ago"
+              }
+            ]
+          }
+        },
+        {
+          "title": "p95 por servico (s)",
+          "layout": {
+            "column": 7,
+            "row": 1,
+            "width": 6,
+            "height": 3
+          },
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  0
+                ],
+                "query": "SELECT percentile(duration, 95) FROM Transaction WHERE appName IN ('garageos-os', 'garageos-billing', 'garageos-execucao') FACET appName TIMESERIES SINCE 3 hours ago"
+              }
+            ]
+          }
+        },
+        {
+          "title": "Erros por servico",
+          "layout": {
+            "column": 1,
+            "row": 4,
+            "width": 6,
+            "height": 3
+          },
+          "visualization": {
+            "id": "viz.bar"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  0
+                ],
+                "query": "SELECT count(*) FROM TransactionError WHERE appName IN ('garageos-os', 'garageos-billing', 'garageos-execucao') FACET appName SINCE 1 day ago"
+              }
+            ]
+          }
+        },
+        {
+          "title": "Logs de erro",
+          "layout": {
+            "column": 7,
+            "row": 4,
+            "width": 6,
+            "height": 3
+          },
+          "visualization": {
+            "id": "viz.table"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  0
+                ],
+                "query": "SELECT entity.name, message FROM Log WHERE entity.name IN ('garageos-os', 'garageos-billing', 'garageos-execucao') AND level IN ('Error', 'Fatal', 'error', 'fatal') SINCE 1 day ago LIMIT 50"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Rastrear uma OS",
+      "description": null,
+      "widgets": [
+        {
+          "title": "Linha do tempo de uma OS (troque o numero na consulta)",
+          "layout": {
+            "column": 1,
+            "row": 1,
+            "width": 12,
+            "height": 4
+          },
+          "visualization": {
+            "id": "viz.table"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  0
+                ],
+                "query": "SELECT eventType(), etapa, statusNovo, falha, correlationId FROM SagaEtapa, SagaCompensacao, OrdemDeServicoStatus, OrcamentoStatus, ExecucaoStatus WHERE numeroOS = 'OS-2026-00001' SINCE 1 day ago LIMIT 100"
+              }
+            ]
+          }
+        },
+        {
+          "title": "Logs dos tres servicos por correlationId (troque o id)",
+          "layout": {
+            "column": 1,
+            "row": 5,
+            "width": 12,
+            "height": 4
+          },
+          "visualization": {
+            "id": "viz.table"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  0
+                ],
+                "query": "SELECT entity.name, context.MessageType, message FROM Log WHERE entity.name IN ('garageos-os', 'garageos-billing', 'garageos-execucao') AND context.CorrelationId = 'COLE-O-ID-AQUI' SINCE 1 day ago LIMIT 100"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

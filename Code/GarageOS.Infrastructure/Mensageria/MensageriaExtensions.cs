@@ -64,6 +64,7 @@ public static class MensageriaExtensions
                 x.UsingInMemory((context, cfg) =>
                 {
                     cfg.UseDelayedMessageScheduler();
+                    cfg.UsarCorrelacao(context);
                     cfg.UseMessageRetry(r => r.Intervals(100, 500, 1000));
                     cfg.ConfigureEndpoints(context);
                 });
@@ -91,6 +92,7 @@ public static class MensageriaExtensions
                 // Prazos da saga: atraso nativo do SQS (até 15 minutos).
                 cfg.UseDelayedMessageScheduler();
 
+                cfg.UsarCorrelacao(context);
                 cfg.UseMessageRetry(r => r.Intervals(500, 2000, 5000, 15000));
                 cfg.ConfigureEndpoints(context);
             });

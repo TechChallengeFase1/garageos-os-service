@@ -31,8 +31,8 @@ RUN groupadd --system appuser && useradd --system --gid appuser appuser
 # /instrumentation - por isso a origem e o destino do COPY tem nomes
 # diferentes. Nao existe imagem `newrelic-dotnet-agent` no Docker Hub.
 #
-# `latest` esta aqui por praticidade; para builds reproduziveis, fixe a versao.
-COPY --from=newrelic/newrelic-dotnet-init:latest      /instrumentation /usr/local/newrelic-dotnet-agent
+# Versao fixa: a mesma nos tres servicos, e o build nao muda sozinho.
+COPY --from=newrelic/newrelic-dotnet-init:10.57.0      /instrumentation /usr/local/newrelic-dotnet-agent
 
 # O agente grava logs proprios dentro do diretorio dele, e a aplicacao roda sem
 # privilegio (USER appuser mais abaixo). Sem este chown ele falha ao iniciar.
@@ -42,8 +42,9 @@ ENV CORECLR_ENABLE_PROFILING=1     CORECLR_PROFILER="{36032161-FFC0-4B61-B559-F6
 
 # Encaminha os logs da aplicacao ao New Relic e injeta trace.id e span.id em
 # cada linha. E isto que liga LOG a TRACE na interface - o requisito de
-# "correlacao entre requisicoes" visto ponta a ponta.
-ENV NEW_RELIC_APPLICATION_LOGGING_ENABLED=true     NEW_RELIC_APPLICATION_LOGGING_FORWARDING_ENABLED=true     NEW_RELIC_DISTRIBUTED_TRACING_ENABLED=true
+# "correlacao entre requisicoes" visto ponta a ponta. CONTEXT_DATA leva junto
+# as propriedades do LogContext (CorrelationId, OrdemDeServicoId, MessageType).
+ENV NEW_RELIC_APPLICATION_LOGGING_ENABLED=true     NEW_RELIC_APPLICATION_LOGGING_FORWARDING_ENABLED=true     NEW_RELIC_APPLICATION_LOGGING_FORWARDING_CONTEXT_DATA_ENABLED=true     NEW_RELIC_DISTRIBUTED_TRACING_ENABLED=true
 
 # NEW_RELIC_LICENSE_KEY e NEW_RELIC_APP_NAME NAO entram na imagem: a chave e
 # segredo e viria junto em qualquer push. Vem do ambiente - .env no local,
