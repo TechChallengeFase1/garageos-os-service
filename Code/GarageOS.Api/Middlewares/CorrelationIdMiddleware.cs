@@ -36,6 +36,9 @@ public class CorrelationIdMiddleware
         // Disponível para quem precisar dele dentro da requisição.
         context.Items[LogPropertyName] = correlationId;
 
+        // Para as mensagens publicadas durante a requisição levarem o mesmo id.
+        GarageOS.Infrastructure.Mensageria.Correlacao.Atual = correlationId;
+
         // Devolvido ao chamador para que ele consiga correlacionar do lado dele.
         // Definido antes de seguir o pipeline, senão a resposta pode já ter
         // começado a ser escrita e o header seria ignorado.

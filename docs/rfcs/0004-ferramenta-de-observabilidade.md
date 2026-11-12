@@ -116,7 +116,7 @@ Os três dashboards exigidos e o alerta são montados na interface do New Relic 
 |---|---|
 | Volume diário de ordens de serviço | `SELECT count(*) FROM OrdemDeServicoCriada SINCE 7 days ago TIMESERIES 1 day` |
 | Tempo médio por status | `SELECT average(minutosNoStatus) FROM OrdemDeServicoStatus FACET statusAnterior SINCE 7 days ago` |
-| Erros de integração | `SELECT count(*) FROM TransactionError WHERE appName = 'garageOS' FACET error.message TIMESERIES` |
+| Erros de integração | `SELECT count(*) FROM TransactionError WHERE appName IN ('garageos-os', 'garageos-billing', 'garageos-execucao') FACET error.message TIMESERIES` |
 
 O alerta obrigatório — **falhas no processamento de ordens de serviço** — é uma condição NRQL sobre o **evento de negócio**, não sobre a exceção técnica:
 
