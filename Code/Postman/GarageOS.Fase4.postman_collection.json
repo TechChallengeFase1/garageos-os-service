@@ -1,0 +1,1523 @@
+{
+  "info": {
+    "name": "GarageOS - Fase 4 (pelo API Gateway)",
+    "description": "Fluxo ponta a ponta entre os três microsserviços, pelo API Gateway.\n\n1. Preencha as variáveis `baseUrl` (URL do API Gateway, sem barra no fim) e `adminPassword` (campo `adminPassword` do segredo `garageos/app/secrets`). Não salve a senha na coleção exportada.\n2. Rode as pastas em ordem. A saga é assíncrona: os passos que dependem dela esperam alguns segundos.\n3. Em `04 - Billing`, o último pedido mostra o link de pagamento no Console. Pague no navegador (conta compradora de teste, cartão do painel do Mercado Pago, titular APRO) antes da pasta 05.\n4. Para a compensação sem pagamento, rode 01, 02, 03 e depois `Cenário - cliente recusa`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": ""
+    },
+    {
+      "key": "adminPassword",
+      "value": ""
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "clienteToken",
+      "value": ""
+    },
+    {
+      "key": "cpf",
+      "value": ""
+    },
+    {
+      "key": "sufixo",
+      "value": ""
+    },
+    {
+      "key": "clienteId",
+      "value": ""
+    },
+    {
+      "key": "veiculoId",
+      "value": ""
+    },
+    {
+      "key": "servicoId",
+      "value": ""
+    },
+    {
+      "key": "estoqueId",
+      "value": ""
+    },
+    {
+      "key": "osId",
+      "value": ""
+    },
+    {
+      "key": "numeroOS",
+      "value": ""
+    },
+    {
+      "key": "orcamentoId",
+      "value": ""
+    },
+    {
+      "key": "pagamentoId",
+      "value": ""
+    },
+    {
+      "key": "linkPagamento",
+      "value": ""
+    },
+    {
+      "key": "execucaoId",
+      "value": ""
+    },
+    {
+      "key": "itemId",
+      "value": ""
+    },
+    {
+      "key": "placa",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "01 - Autenticação",
+      "description": "Token de Admin. O login é uma rota pública do gateway.",
+      "item": [
+        {
+          "name": "POST Login de Admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/os/api/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "os",
+                "api",
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"admin\",\n  \"password\": \"{{adminPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));",
+                  "pm.collectionVariables.set('token', pm.response.json().token);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 - Cadastros",
+      "description": "Cliente, veículo e serviço no OS; peça no estoque do Execução.",
+      "item": [
+        {
+          "name": "POST Cliente (OS)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/os/api/clientes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "os",
+                "api",
+                "clientes"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nome\": \"Cliente {{sufixo}}\",\n  \"documento\": \"{{cpf}}\",\n  \"email\": \"cliente{{sufixo}}@garageos.test\",\n  \"telefone\": \"119{{sufixo}}000\",\n  \"logradouro\": \"Rua das Flores\",\n  \"numero\": \"123\",\n  \"complemento\": \"\",\n  \"bairro\": \"Centro\",\n  \"cidade\": \"São Paulo\",\n  \"estado\": \"SP\",\n  \"cep\": \"01001000\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// CPF válido e dados únicos a cada execução.",
+                  "const n = Array.from({length: 9}, () => Math.floor(Math.random() * 10));",
+                  "for (let k = 0; k < 2; k++) {",
+                  "  const soma = n.reduce((s, d, i) => s + d * (n.length + 1 - i), 0);",
+                  "  const dv = (soma * 10) % 11;",
+                  "  n.push(dv === 10 ? 0 : dv);",
+                  "}",
+                  "pm.collectionVariables.set('cpf', n.join(''));",
+                  "pm.collectionVariables.set('sufixo', String(Math.floor(10000 + Math.random() * 89999)));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.expect(pm.response.code).to.be.oneOf([201]));",
+                  "pm.collectionVariables.set('clienteId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST Veículo (OS)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/os/api/veiculos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "os",
+                "api",
+                "veiculos"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"marcaVeiculo\": \"Volkswagen\",\n  \"modeloVeiculo\": \"Gol\",\n  \"placaVeiculo\": \"TST{{placa}}\",\n  \"anoVeiculo\": 2020,\n  \"precoVeiculo\": 30000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('placa', pm.collectionVariables.get('sufixo').slice(0, 4));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.expect(pm.response.code).to.be.oneOf([201]));",
+                  "pm.collectionVariables.set('veiculoId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST Serviço (OS)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/os/api/servicos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "os",
+                "api",
+                "servicos"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nomeServico\": \"Revisão {{sufixo}}\",\n  \"preco\": 80.0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.expect(pm.response.code).to.be.oneOf([201]));",
+                  "pm.collectionVariables.set('servicoId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST Peça no estoque (Execução)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/execucao/api/estoques",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "execucao",
+                "api",
+                "estoques"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nome\": \"Filtro {{sufixo}}\",\n  \"quantidade\": 10,\n  \"valor\": 10.0,\n  \"fornecedor\": \"Fornecedor Teste\",\n  \"dataEntrada\": \"{{$isoTimestamp}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.expect(pm.response.code).to.be.oneOf([201]));",
+                  "pm.collectionVariables.set('estoqueId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 - Ordem de serviço e saga",
+      "description": "Abre a OS e inicia a saga. O OS confere a peça no Execução por HTTP.",
+      "item": [
+        {
+          "name": "POST Abertura completa (OS)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/os/api/ordensdeservico/abertura-completa",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "os",
+                "api",
+                "ordensdeservico",
+                "abertura-completa"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"clienteId\": \"{{clienteId}}\",\n  \"veiculoId\": \"{{veiculoId}}\",\n  \"servicosIds\": [\n    \"{{servicoId}}\"\n  ],\n  \"pecas\": [\n    {\n      \"estoqueId\": \"{{estoqueId}}\",\n      \"quantidade\": 2\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.expect(pm.response.code).to.be.oneOf([201]));",
+                  "const os = pm.response.json();",
+                  "pm.collectionVariables.set('osId', os.id);",
+                  "pm.collectionVariables.set('numeroOS', os.numeroOS);",
+                  "console.log('OS:', os.numeroOS);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST Solicitar orçamento (inicia a saga)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/os/api/ordensdeservico/{{osId}}/orcamento/solicitar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "os",
+                "api",
+                "ordensdeservico",
+                "{{osId}}",
+                "orcamento",
+                "solicitar"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 202', () => pm.expect(pm.response.code).to.be.oneOf([202]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Saga da OS",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/os/api/ordensdeservico/{{osId}}/saga",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "os",
+                "api",
+                "ordensdeservico",
+                "{{osId}}",
+                "saga"
+              ]
+            },
+            "description": "O Billing gera o orçamento ao receber GerarOrcamento pela fila."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// A saga é assíncrona: espera os outros serviços responderem pela fila.",
+                  "setTimeout(() => {}, 5000);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));",
+                  "const saga = pm.response.json();",
+                  "pm.test('Saga em AguardandoOrcamento ou AguardandoAprovacao', () => pm.expect(saga.etapa).to.be.oneOf([\"AguardandoOrcamento\", \"AguardandoAprovacao\"]));",
+                  "console.log('Etapa da saga:', saga.etapa, saga.motivo || '');"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "04 - Billing: orçamento e cobrança",
+      "description": "O cliente aprova, o Execução reserva as peças e o Billing abre a cobrança no Mercado Pago.",
+      "item": [
+        {
+          "name": "GET Orçamento da OS",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/billing/api/orcamentos?ordemDeServicoId={{osId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "billing",
+                "api",
+                "orcamentos"
+              ],
+              "query": [
+                {
+                  "key": "ordemDeServicoId",
+                  "value": "{{osId}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// A saga é assíncrona: espera os outros serviços responderem pela fila.",
+                  "setTimeout(() => {}, 3000);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));",
+                  "pm.collectionVariables.set('orcamentoId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "PATCH Cliente aprova o orçamento",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/billing/api/orcamentos/{{orcamentoId}}/resposta",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "billing",
+                "api",
+                "orcamentos",
+                "{{orcamentoId}}",
+                "resposta"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"aprovado\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Saga (aguardando pagamento)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/os/api/ordensdeservico/{{osId}}/saga",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "os",
+                "api",
+                "ordensdeservico",
+                "{{osId}}",
+                "saga"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// A saga é assíncrona: espera os outros serviços responderem pela fila.",
+                  "setTimeout(() => {}, 8000);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));",
+                  "const saga = pm.response.json();",
+                  "pm.test('Saga em ReservandoPecas ou AguardandoPagamento', () => pm.expect(saga.etapa).to.be.oneOf([\"ReservandoPecas\", \"AguardandoPagamento\"]));",
+                  "console.log('Etapa da saga:', saga.etapa, saga.motivo || '');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Pagamento e link",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/billing/api/orcamentos/{{orcamentoId}}/pagamentos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "billing",
+                "api",
+                "orcamentos",
+                "{{orcamentoId}}",
+                "pagamentos"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// A saga é assíncrona: espera os outros serviços responderem pela fila.",
+                  "setTimeout(() => {}, 3000);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));",
+                  "const p = pm.response.json()[0];",
+                  "pm.test('Cobrança aberta', () => pm.expect(p.linkPagamento).to.be.a('string'));",
+                  "pm.collectionVariables.set('pagamentoId', p.id);",
+                  "pm.collectionVariables.set('linkPagamento', p.linkPagamento);",
+                  "console.log('PAGUE NESTE LINK:', p.linkPagamento);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "05 - Depois de pagar: execução",
+      "description": "Rode depois de pagar o link. O webhook do Mercado Pago confirma e a saga manda iniciar a execução.",
+      "item": [
+        {
+          "name": "GET Saga (em execução)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/os/api/ordensdeservico/{{osId}}/saga",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "os",
+                "api",
+                "ordensdeservico",
+                "{{osId}}",
+                "saga"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));",
+                  "const saga = pm.response.json();",
+                  "pm.test('Saga em EmExecucao', () => pm.expect(saga.etapa).to.be.oneOf([\"EmExecucao\"]));",
+                  "console.log('Etapa da saga:', saga.etapa, saga.motivo || '');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Execução da OS",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/execucao/api/execucoes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "execucao",
+                "api",
+                "execucoes"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));",
+                  "const e = pm.response.json().find(x => x.ordemDeServicoId === pm.collectionVariables.get('osId'));",
+                  "pm.test('Execução aberta', () => pm.expect(e).to.be.an('object'));",
+                  "pm.collectionVariables.set('execucaoId', e.id);",
+                  "pm.collectionVariables.set('itemId', e.itens[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "PATCH Diagnóstico",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/execucao/api/execucoes/{{execucaoId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "execucao",
+                "api",
+                "execucoes",
+                "{{execucaoId}}",
+                "status"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"EmDiagnostico\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "PATCH Reparo",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/execucao/api/execucoes/{{execucaoId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "execucao",
+                "api",
+                "execucoes",
+                "{{execucaoId}}",
+                "status"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"EmReparo\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "PATCH Item iniciado",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/execucao/api/execucoes/{{execucaoId}}/itens/{{itemId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "execucao",
+                "api",
+                "execucoes",
+                "{{execucaoId}}",
+                "itens",
+                "{{itemId}}",
+                "status"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Iniciado\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "PATCH Item finalizado",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/execucao/api/execucoes/{{execucaoId}}/itens/{{itemId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "execucao",
+                "api",
+                "execucoes",
+                "{{execucaoId}}",
+                "itens",
+                "{{itemId}}",
+                "status"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Finalizado\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "PATCH Concluída",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/execucao/api/execucoes/{{execucaoId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "execucao",
+                "api",
+                "execucoes",
+                "{{execucaoId}}",
+                "status"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Concluida\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Saga (finalizada)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/os/api/ordensdeservico/{{osId}}/saga",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "os",
+                "api",
+                "ordensdeservico",
+                "{{osId}}",
+                "saga"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// A saga é assíncrona: espera os outros serviços responderem pela fila.",
+                  "setTimeout(() => {}, 5000);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));",
+                  "const saga = pm.response.json();",
+                  "pm.test('Saga em Finalizada', () => pm.expect(saga.etapa).to.be.oneOf([\"Finalizada\"]));",
+                  "console.log('Etapa da saga:', saga.etapa, saga.motivo || '');"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "06 - Cliente",
+      "description": "O cliente entra pelo CPF (Lambda) e acompanha a OS sem login.",
+      "item": [
+        {
+          "name": "POST Login por CPF (Lambda)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cpf\": \"{{cpf}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));",
+                  "pm.collectionVariables.set('clienteToken', pm.response.json().token || pm.response.json().accessToken || '');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Acompanhar a OS (pública)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/os/api/ordensdeservico/acompanhar/{{numeroOS}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "os",
+                "api",
+                "ordensdeservico",
+                "acompanhar",
+                "{{numeroOS}}"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));",
+                  "console.log('Status para o cliente:', pm.response.json().status);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Cenário - cliente recusa",
+      "description": "Compensação sem pagamento: rode 01, 02 e 03 antes.",
+      "item": [
+        {
+          "name": "GET Orçamento da OS",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/billing/api/orcamentos?ordemDeServicoId={{osId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "billing",
+                "api",
+                "orcamentos"
+              ],
+              "query": [
+                {
+                  "key": "ordemDeServicoId",
+                  "value": "{{osId}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// A saga é assíncrona: espera os outros serviços responderem pela fila.",
+                  "setTimeout(() => {}, 3000);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));",
+                  "pm.collectionVariables.set('orcamentoId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "PATCH Cliente recusa",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/billing/api/orcamentos/{{orcamentoId}}/resposta",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "billing",
+                "api",
+                "orcamentos",
+                "{{orcamentoId}}",
+                "resposta"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"aprovado\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Saga (cancelada)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/os/api/ordensdeservico/{{osId}}/saga",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "os",
+                "api",
+                "ordensdeservico",
+                "{{osId}}",
+                "saga"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// A saga é assíncrona: espera os outros serviços responderem pela fila.",
+                  "setTimeout(() => {}, 4000);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));",
+                  "const saga = pm.response.json();",
+                  "pm.test('Saga em Cancelada', () => pm.expect(saga.etapa).to.be.oneOf([\"Cancelada\"]));",
+                  "console.log('Etapa da saga:', saga.etapa, saga.motivo || '');"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Cenário - execução falha (estorno)",
+      "description": "Compensação depois de pago: rode 01 a 04, pague o link e então esta pasta.",
+      "item": [
+        {
+          "name": "GET Saga (em execução)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/os/api/ordensdeservico/{{osId}}/saga",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "os",
+                "api",
+                "ordensdeservico",
+                "{{osId}}",
+                "saga"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));",
+                  "const saga = pm.response.json();",
+                  "pm.test('Saga em EmExecucao', () => pm.expect(saga.etapa).to.be.oneOf([\"EmExecucao\"]));",
+                  "console.log('Etapa da saga:', saga.etapa, saga.motivo || '');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Execução da OS",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/execucao/api/execucoes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "execucao",
+                "api",
+                "execucoes"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));",
+                  "const e = pm.response.json().find(x => x.ordemDeServicoId === pm.collectionVariables.get('osId'));",
+                  "pm.collectionVariables.set('execucaoId', e.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "PATCH Execução falhou",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/execucao/api/execucoes/{{execucaoId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "execucao",
+                "api",
+                "execucoes",
+                "{{execucaoId}}",
+                "status"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Falhou\",\n  \"motivo\": \"Motor travado\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Saga (cancelada)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/os/api/ordensdeservico/{{osId}}/saga",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "os",
+                "api",
+                "ordensdeservico",
+                "{{osId}}",
+                "saga"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// A saga é assíncrona: espera os outros serviços responderem pela fila.",
+                  "setTimeout(() => {}, 5000);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));",
+                  "const saga = pm.response.json();",
+                  "pm.test('Saga em Cancelada', () => pm.expect(saga.etapa).to.be.oneOf([\"Cancelada\"]));",
+                  "console.log('Etapa da saga:', saga.etapa, saga.motivo || '');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Pagamento (estornado)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/billing/api/orcamentos/{{orcamentoId}}/pagamentos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "billing",
+                "api",
+                "orcamentos",
+                "{{orcamentoId}}",
+                "pagamentos"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// A saga é assíncrona: espera os outros serviços responderem pela fila.",
+                  "setTimeout(() => {}, 5000);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));",
+                  "pm.test('Estornado', () => pm.expect(pm.response.json()[0].status).to.eql('Estornado'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
