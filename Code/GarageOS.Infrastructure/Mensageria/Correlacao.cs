@@ -25,34 +25,30 @@ public static class Correlacao
     }
 }
 
-/// <summary>Carimba o correlationId atual em toda mensagem publicada</summary>
-public class CorrelacaoNaPublicacao<T> : IFilter<PublishContext<T>> where T : class
+/// <summary>Carimba o correlationId atual em toda mensagem publicada ou enviada</summary>
+/// <remarks>
+/// Instância única, fora da injeção de dependências, de propósito: o outbox em
+/// memória entrega as mensagens depois que o consumidor termina, quando o escopo
+/// de DI já foi descartado. Um filtro resolvido por esse escopo falharia ali.
+/// </remarks>
+public sealed class CorrelacaoNaSaida : IFilter<SendContext>, IFilter<PublishContext>
 {
-    public Task Send(PublishContext<T> context, IPipe<PublishContext<T>> next)
+    public Task Send(SendContext context, IPipe<SendContext> next)
     {
-        Carimbar.No(context);
+        Carimbar(context);
+        return next.Send(context);
+    }
+
+    public Task Send(PublishContext context, IPipe<PublishContext> next)
+    {
+        Carimbar(context);
         return next.Send(context);
     }
 
     public void Probe(ProbeContext context) => context.CreateFilterScope("correlacao");
-}
 
-/// <summary>Carimba o correlationId atual em toda mensagem enviada direto a uma fila</summary>
-public class CorrelacaoNoEnvio<T> : IFilter<SendContext<T>> where T : class
-{
-    public Task Send(SendContext<T> context, IPipe<SendContext<T>> next)
-    {
-        Carimbar.No(context);
-        return next.Send(context);
-    }
-
-    public void Probe(ProbeContext context) => context.CreateFilterScope("correlacao");
-}
-
-internal static class Carimbar
-{
     // Quem já definiu o cabeçalho (o chamador, por exemplo) é respeitado.
-    public static void No(SendContext context)
+    private static void Carimbar(SendContext context)
     {
         if (Correlacao.Atual is { } id && !context.Headers.TryGetHeader(Correlacao.Cabecalho, out _))
             context.Headers.Set(Correlacao.Cabecalho, id);
@@ -121,8 +117,9 @@ public static class CorrelacaoExtensions
 {
     public static void UsarCorrelacao(this IBusFactoryConfigurator cfg, IRegistrationContext context)
     {
-        cfg.UsePublishFilter(typeof(CorrelacaoNaPublicacao<>), context);
-        cfg.UseSendFilter(typeof(CorrelacaoNoEnvio<>), context);
+        var saida = new CorrelacaoNaSaida();
+        cfg.ConfigurePublish(p => p.UseFilter<PublishContext>(saida));
+        cfg.ConfigureSend(e => e.UseFilter<SendContext>(saida));
         cfg.UseConsumeFilter(typeof(CorrelacaoNoConsumo<>), context);
     }
 }

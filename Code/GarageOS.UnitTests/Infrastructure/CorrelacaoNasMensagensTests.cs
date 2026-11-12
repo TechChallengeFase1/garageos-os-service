@@ -32,6 +32,8 @@ public class CorrelacaoNasMensagensTests : IAsyncLifetime
             .AddMassTransitTestHarness(x =>
             {
                 x.AddConsumer<ConsumidorDoPedido>();
+                // Como no Billing: o outbox em memória entrega depois que o consumidor termina.
+                x.AddConfigureEndpointsCallback((context, _, cfg) => cfg.UseInMemoryOutbox(context));
                 x.UsingInMemory((context, cfg) =>
                 {
                     cfg.UsarCorrelacao(context);
@@ -82,6 +84,27 @@ public class CorrelacaoNasMensagensTests : IAsyncLifetime
         var id = _harness.Published.Select<Resposta>(m => m.Context.Message.OrdemDeServicoId == os).Single()
             .Context.Headers.Get<string>(Correlacao.Cabecalho);
         id.Should().NotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
+    public async Task EnvioDiretoParaAFila_TambemDeveLevarOId()
+    {
+        // A saga manda comandos direto para a fila do outro serviço, sem publicar.
+        var os = Guid.NewGuid();
+        var fila = await _harness.GetConsumerEndpoint<ConsumidorDoPedido>();
+        Correlacao.Atual = "envio-456";
+        try
+        {
+            await fila.Send(new Pedido(os));
+        }
+        finally
+        {
+            Correlacao.Atual = null;
+        }
+
+        (await _harness.Published.Any<Resposta>(m => m.Context.Message.OrdemDeServicoId == os)).Should().BeTrue();
+        _harness.Published.Select<Resposta>(m => m.Context.Message.OrdemDeServicoId == os).Single()
+            .Context.Headers.Get<string>(Correlacao.Cabecalho).Should().Be("envio-456");
     }
 
     [Fact]
