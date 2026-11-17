@@ -483,6 +483,17 @@ dotnet test Code/GarageOS.OsService.Bdd
 
 ---
 
+### Proteção da `main`
+
+Regra `MainProtect` na `main`:
+
+- alteração só por pull request, sem push direto, sem force-push e sem apagar a branch;
+- o check `Build and tests` é obrigatório para o merge. Ele roda build, testes, o Quality Gate do SonarCloud e a trava de 80% de cobertura, então teste quebrado ou gate reprovado não entram.
+
+Evidência: um PR com teste quebrado de propósito ficou bloqueado e foi fechado sem merge ([garageos-execucao-service#6](https://github.com/TechChallengeFase1/garageos-execucao-service/pull/6)).
+
+---
+
 ## Estrutura do repositório
 
 ```text
